@@ -25,6 +25,7 @@ type Transport struct {
 	neoFinKey  string
 	authToken  string
 	sessionSid string
+	configErr  error
 	mu         sync.RWMutex
 }
 
@@ -101,6 +102,10 @@ func (t *Transport) ExecuteJSON(ctx context.Context, method, endpoint string, bo
 
 // ExecuteRawRequest executes arbitrary HTTP requests.
 func (t *Transport) executeRaw(ctx context.Context, method, endpoint string, body io.Reader, headers http.Header, out interface{}) error {
+	if t.configErr != nil {
+		return t.configErr
+	}
+
 	t.mu.RLock()
 	base := t.baseURI
 	token := t.authToken

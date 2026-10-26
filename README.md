@@ -15,6 +15,7 @@ Production-grade, high-throughput Go SDK for the **Kotak Neo Trade API** gateway
 ```
 gokotakneo/
 ├── client.go              # Root Client & session gateway state
+├── proxy.go               # Static forward proxy support (WithProxy / ProxyConfig / RESTClientFor)
 ├── transport.go           # JData HTTPClient pipeline & session header injection
 ├── endpoints.go           # Kotak Neo REST URI route constants
 ├── errors.go              # Structured APIError and domain sentinels
@@ -242,6 +243,44 @@ func main() {
 
 	streamClient.Serve(ctx)
 }
+```
+
+---
+
+### 5. Static IP & Forward Proxy (Algo IP Whitelisting)
+
+Configure dedicated forward proxies (such as `algoip.in`, `staticip.in`, or private forward proxies) for Kotak Neo IP whitelisting:
+
+```go
+// Option A: Structured ProxyConfig
+client := gokotakneo.NewClient("consumer-key",
+	gokotakneo.WithProxy(gokotakneo.ProxyConfig{
+		Host:         "dc46-mum-01.algoip.in",
+		Port:         443,
+		ClientID:     "your_proxy_username",
+		ClientSecret: "your_proxy_password",
+	}),
+)
+
+// Option B: Proxy URL string
+client := gokotakneo.NewClient("consumer-key",
+	gokotakneo.WithProxyURL("https://user:pass@dc46-mum-01.algoip.in:443"),
+)
+
+// Option C: Standalone RESTClientFor
+httpClient, err := gokotakneo.RESTClientFor(gokotakneo.ProxyConfig{
+	Host:         "dc46-mum-01.algoip.in",
+	Port:         443,
+	ClientID:     "user",
+	ClientSecret: "pass",
+})
+
+// WebSocket Feed and OrderStream through proxy
+feedClient := feed.New("wss://rt.kotaksecurities.com", "token", "sid", callbacks)
+feedClient.SetProxyURL("https://user:pass@dc46-mum-01.algoip.in:443")
+
+streamClient := orderstream.New("wss://rt.kotaksecurities.com", "token", "sid", orderCallbacks)
+streamClient.SetProxyURL("https://user:pass@dc46-mum-01.algoip.in:443")
 ```
 
 ---

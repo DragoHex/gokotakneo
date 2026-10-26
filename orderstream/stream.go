@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -26,6 +27,17 @@ type Client struct {
 	autoReconnect    bool
 	reconnectAttempt int
 	cancel           context.CancelFunc
+	proxyURL         *url.URL
+}
+
+// SetProxyURL sets proxy URL on the order stream client.
+func (c *Client) SetProxyURL(rawURL string) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed != "" {
+		if u, err := url.Parse(trimmed); err == nil && u.Host != "" {
+			c.proxyURL = u
+		}
+	}
 }
 
 // New creates a new order/position streaming client.
@@ -99,7 +111,14 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		return fmt.Errorf("invalid rt url: %w", err)
 	}
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	dialer := websocket.DefaultDialer
+	if c.proxyURL != nil {
+		dialer = &websocket.Dialer{
+			Proxy:            http.ProxyURL(c.proxyURL),
+			HandshakeTimeout: 10 * time.Second,
+		}
+	}
+	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("order stream websocket dial: %w", err)
 	}
