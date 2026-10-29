@@ -56,6 +56,15 @@ func TestReports_Execution(t *testing.T) {
 		if !orders[0].AveragePrice.Equal(gokotakneo.MustDecimal("1450.50")) {
 			t.Errorf("avg price = %s, want 1450.50", orders[0].AveragePrice)
 		}
+
+		// Verify GetOrderBook alias behaves identically
+		orderBook, err := client.GetOrderBook(context.Background())
+		if err != nil {
+			t.Fatalf("GetOrderBook failed: %v", err)
+		}
+		if len(orderBook) != 1 || orderBook[0].OrderNumber != orders[0].OrderNumber {
+			t.Errorf("GetOrderBook result mismatch: got %+v, want %+v", orderBook, orders)
+		}
 	})
 
 	t.Run("Positive: Get Order by ID", func(t *testing.T) {

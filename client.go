@@ -1,6 +1,7 @@
 package gokotakneo
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/shopspring/decimal"
@@ -60,9 +61,12 @@ func (c *Client) SetGateways(baseURL, feedURL, rtURL string) {
 	c.transport.SetBaseURI(baseURL)
 }
 
-// SetSessionTokens updates active trade session credentials.
+// SetSessionTokens updates active trade session credentials and authenticated state.
 func (c *Client) SetSessionTokens(tradeToken, tradeSid string) {
 	c.transport.SetSessionHeaders(tradeToken, tradeSid)
+	c.mu.Lock()
+	c.authenticated = strings.TrimSpace(tradeToken) != "" && strings.TrimSpace(tradeSid) != ""
+	c.mu.Unlock()
 }
 
 // BaseURL returns the currently configured base URL.

@@ -191,4 +191,21 @@ func TestAuth_Lifecycle(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+
+	t.Run("Positive: SetSessionTokens Updates Authenticated State", func(t *testing.T) {
+		client := gokotakneo.New("portal-token")
+		if client.IsAuthenticated() {
+			t.Errorf("new client should not be authenticated")
+		}
+
+		client.SetSessionTokens("valid-trade-token", "valid-trade-sid")
+		if !client.IsAuthenticated() {
+			t.Errorf("client with non-empty session tokens must be authenticated")
+		}
+
+		client.SetSessionTokens("", "")
+		if client.IsAuthenticated() {
+			t.Errorf("client with empty session tokens must not be authenticated")
+		}
+	})
 }

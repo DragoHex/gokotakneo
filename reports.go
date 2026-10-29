@@ -29,6 +29,11 @@ func (c *Client) GetOrders(ctx context.Context) ([]models.Order, error) {
 	return resp.Data, nil
 }
 
+// GetOrderBook retrieves all orders for the current trading day (alias for GetOrders).
+func (c *Client) GetOrderBook(ctx context.Context) ([]models.Order, error) {
+	return c.GetOrders(ctx)
+}
+
 // GetOrderByID retrieves order details for a specific order number.
 // Endpoint: GET <Base URL>/quick/user/orders/<order_no>
 func (c *Client) GetOrderByID(ctx context.Context, orderNo string) (*models.Order, error) {

@@ -28,10 +28,13 @@ type Client struct {
 	reconnectAttempt int
 	cancel           context.CancelFunc
 	proxyURL         *url.URL
+	mu               sync.Mutex
 }
 
 // SetProxyURL sets proxy URL on the order stream client.
 func (c *Client) SetProxyURL(rawURL string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed != "" {
 		if u, err := url.Parse(trimmed); err == nil && u.Host != "" {
@@ -60,10 +63,26 @@ func New(rtURL, tradeToken, tradeSid string, callbacks StreamCallbacks) *Client 
 	return c
 }
 
-// Serve starts the connection and message loop until context cancellation.
+// Close gracefully terminates the order stream connection and stops auto-reconnect.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.autoReconnect = false
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+// Serve starts the connection and message loop until context cancellation or Close().
 func (c *Client) Serve(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	c.mu.Lock()
 	c.cancel = cancel
+	c.mu.Unlock()
 	defer cancel()
 
 	for {
@@ -76,7 +95,11 @@ func (c *Client) Serve(ctx context.Context) error {
 				c.callbacks.OnError(err)
 			}
 
-			if !c.autoReconnect {
+			c.mu.Lock()
+			shouldReconnect := c.autoReconnect
+			c.mu.Unlock()
+
+			if !shouldReconnect {
 				return err
 			}
 
@@ -111,10 +134,14 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		return fmt.Errorf("invalid rt url: %w", err)
 	}
 
+	c.mu.Lock()
+	proxyURL := c.proxyURL
+	c.mu.Unlock()
+
 	dialer := websocket.DefaultDialer
-	if c.proxyURL != nil {
+	if proxyURL != nil {
 		dialer = &websocket.Dialer{
-			Proxy:            http.ProxyURL(c.proxyURL),
+			Proxy:            http.ProxyURL(proxyURL),
 			HandshakeTimeout: 10 * time.Second,
 		}
 	}
@@ -122,8 +149,19 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("order stream websocket dial: %w", err)
 	}
+
+	c.mu.Lock()
 	c.conn = conn
-	defer conn.Close()
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		if c.conn == conn {
+			c.conn = nil
+		}
+		c.mu.Unlock()
+		conn.Close()
+	}()
 
 	c.reconnectAttempt = 0
 	c.lastActivity.Store(time.Now())
@@ -133,6 +171,14 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(handshake)); err != nil {
 		return fmt.Errorf("send raw handshake: %w", err)
 	}
+
+	// Register Ping Handler to update activity timer and respond with Pong
+	conn.SetPingHandler(func(appData string) error {
+		c.lastActivity.Store(time.Now())
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+	})
 
 	if c.callbacks.OnConnect != nil {
 		c.callbacks.OnConnect()
@@ -144,11 +190,11 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 	readCtx, readCancel := context.WithCancel(ctx)
 	defer readCancel()
 
-	// Watchdog Goroutine
+	// Inactivity Watchdog: 90 seconds threshold
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -156,8 +202,29 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				last := c.lastActivity.Load().(time.Time)
-				if time.Since(last) > 6*time.Second {
-					c.conn.Close()
+				if time.Since(last) > 90*time.Second {
+					conn.Close()
+					return
+				}
+			}
+		}
+	}()
+
+	// Ping keep-alive: send Ping every 30 seconds
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-readCtx.Done():
+				return
+			case <-ticker.C:
+				c.mu.Lock()
+				err := conn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(time.Second))
+				c.mu.Unlock()
+				if err != nil {
 					return
 				}
 			}
@@ -165,7 +232,7 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 	}()
 
 	for {
-		_, data, err := c.conn.ReadMessage()
+		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return err
 		}
