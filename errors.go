@@ -16,6 +16,7 @@ var (
 	ErrNotFound           = errors.New("resource or order not found")
 	ErrInvalidInput       = errors.New("invalid request parameters")
 	ErrBrokerUnavailable  = errors.New("kotak-neo gateway unreachable or timed out")
+	ErrIPNotWhitelisted   = errors.New("kotak-neo: static ip not whitelisted or session-ip mismatch (code 100008)")
 )
 
 // APIError captures detailed error responses from Kotak-Neo APIs.
@@ -126,6 +127,8 @@ func mapKotakCodeToSentinel(stCode int, msg string) error {
 		return ErrAuthExpired
 	case 404:
 		return ErrNotFound
+	case 100008:
+		return ErrIPNotWhitelisted
 	default:
 		if strings.Contains(strings.ToLower(msg), "insufficient") {
 			return ErrInsufficientFunds

@@ -65,6 +65,22 @@ func TestParseError_Taxonomy(t *testing.T) {
 			wantCode:      500,
 			wantMsgSubstr: "failed to parse",
 		},
+		{
+			name:          "Positive: Kotak SEBI IP Whitelist Rejection (100008)",
+			httpStatus:    http.StatusOK,
+			body:          []byte(`{"stat": "Not_Ok", "stCode": 100008, "errMsg": "unauthorized"}`),
+			wantSentinel:  gokotakneo.ErrIPNotWhitelisted,
+			wantCode:      100008,
+			wantMsgSubstr: "unauthorized",
+		},
+		{
+			name:          "Edge Case: Kotak 100008 with empty errMsg",
+			httpStatus:    http.StatusOK,
+			body:          []byte(`{"stat": "Not_Ok", "stCode": 100008, "errMsg": ""}`),
+			wantSentinel:  gokotakneo.ErrIPNotWhitelisted,
+			wantCode:      100008,
+			wantMsgSubstr: "static ip not whitelisted",
+		},
 	}
 
 	for _, tt := range tests {
