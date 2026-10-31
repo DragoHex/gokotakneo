@@ -44,14 +44,23 @@ func ParseAPIError(httpStatus int, body []byte) error {
 		Stat   string `json:"stat"`
 		StCode int    `json:"stCode"`
 		EMsg   string `json:"emsg"`
+		ErrMsg string `json:"errMsg"`
+		Desc   string `json:"desc"`
 	}
 	if err := json.Unmarshal(body, &kotakErr); err == nil && (kotakErr.Stat == "Not_Ok" || kotakErr.StCode > 0) {
+		msg := kotakErr.EMsg
+		if msg == "" {
+			msg = kotakErr.ErrMsg
+		}
+		if msg == "" {
+			msg = kotakErr.Desc
+		}
 		apiErr := &APIError{
 			StatusCode: kotakErr.StCode,
 			Status:     kotakErr.Stat,
-			Message:    kotakErr.EMsg,
+			Message:    msg,
 		}
-		apiErr.Err = mapKotakCodeToSentinel(kotakErr.StCode, kotakErr.EMsg)
+		apiErr.Err = mapKotakCodeToSentinel(kotakErr.StCode, msg)
 		if apiErr.Message == "" {
 			apiErr.Message = apiErr.Err.Error()
 		}
@@ -126,4 +135,27 @@ func mapKotakCodeToSentinel(stCode int, msg string) error {
 		}
 		return ErrInvalidInput
 	}
+}
+
+// isNoDataAPIError returns true if err indicates an empty result from Kotak Neo
+// (e.g., stCode 5203, "No Data", "data not found", or "No holdings found").
+func isNoDataAPIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode == 5203 {
+			return true
+		}
+		msg := strings.ToLower(apiErr.Message)
+		if strings.Contains(msg, "no data") || strings.Contains(msg, "data not found") || strings.Contains(msg, "no holdings found") {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "5203") ||
+		strings.Contains(msg, "no data") ||
+		strings.Contains(msg, "data not found") ||
+		strings.Contains(msg, "no holdings found")
 }

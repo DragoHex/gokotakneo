@@ -166,4 +166,58 @@ func TestReports_Execution(t *testing.T) {
 			t.Errorf("tradeID = %q, want TRD12345", trades[0].TradeID)
 		}
 	})
+
+	t.Run("Positive: GetOrders empty on 5203 No Data", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"stCode":5203,"errMsg":"No Data","desc":"data not found","stat":"Not_Ok"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		orders, err := client.GetOrders(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on 5203, got: %v", err)
+		}
+		if len(orders) != 0 {
+			t.Errorf("expected 0 orders, got %d", len(orders))
+		}
+	})
+
+	t.Run("Positive: GetOrderHistory empty on 5203 No Data", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"stCode":5203,"errMsg":"No Data","desc":"data not found","stat":"Not_Ok"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		history, err := client.GetOrderHistory(context.Background(), "250720000007242")
+		if err != nil {
+			t.Fatalf("expected nil error on 5203, got: %v", err)
+		}
+		if len(history) != 0 {
+			t.Errorf("expected 0 history items, got %d", len(history))
+		}
+	})
+
+	t.Run("Positive: GetTrades empty on 5203 No Data", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"stCode":5203,"errMsg":"No Data","desc":"data not found","stat":"Not_Ok"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		trades, err := client.GetTrades(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on 5203, got: %v", err)
+		}
+		if len(trades) != 0 {
+			t.Errorf("expected 0 trades, got %d", len(trades))
+		}
+	})
 }

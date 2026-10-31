@@ -138,4 +138,40 @@ func TestPortfolio_Execution(t *testing.T) {
 			t.Errorf("Net = %s, want 10157.08", limits.Net)
 		}
 	})
+
+	t.Run("Positive: GetPositions empty on 5203 No Data", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"stCode":5203,"errMsg":"No Data","desc":"data not found","stat":"Not_Ok"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		positions, err := client.GetPositions(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on 5203, got: %v", err)
+		}
+		if len(positions) != 0 {
+			t.Errorf("expected 0 positions, got %d", len(positions))
+		}
+	})
+
+	t.Run("Positive: GetHoldings empty on 424 No holdings found", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(424)
+			w.Write([]byte(`{"error":[{"code":424,"message":"No holdings found for this client V45IC"}]}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		holdings, err := client.GetHoldings(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on 424 no holdings, got: %v", err)
+		}
+		if len(holdings) != 0 {
+			t.Errorf("expected 0 holdings, got %d", len(holdings))
+		}
+	})
 }

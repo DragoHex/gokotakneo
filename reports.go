@@ -19,6 +19,9 @@ func (c *Client) GetOrders(ctx context.Context) ([]models.Order, error) {
 
 	err := c.transport.executeRaw(ctx, http.MethodGet, URIGetOrders, nil, nil, &resp)
 	if err != nil {
+		if isNoDataAPIError(err) {
+			return []models.Order{}, nil
+		}
 		return nil, err
 	}
 
@@ -75,6 +78,9 @@ func (c *Client) GetOrderHistory(ctx context.Context, orderNo string) ([]models.
 
 	err := c.transport.ExecuteJData(ctx, http.MethodPost, URIGetOrderHistory, payload, &resp)
 	if err != nil {
+		if isNoDataAPIError(err) {
+			return []models.Order{}, nil
+		}
 		return nil, err
 	}
 
@@ -95,6 +101,9 @@ func (c *Client) GetTrades(ctx context.Context) ([]models.Trade, error) {
 
 	err := c.transport.executeRaw(ctx, http.MethodGet, URIGetTrades, nil, nil, &resp)
 	if err != nil {
+		if isNoDataAPIError(err) {
+			return []models.Trade{}, nil
+		}
 		return nil, err
 	}
 

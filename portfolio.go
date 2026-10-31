@@ -17,6 +17,9 @@ func (c *Client) GetPositions(ctx context.Context) ([]models.Position, error) {
 
 	err := c.transport.executeRaw(ctx, http.MethodGet, URIGetPositions, nil, nil, &resp)
 	if err != nil {
+		if isNoDataAPIError(err) {
+			return []models.Position{}, nil
+		}
 		return nil, err
 	}
 
@@ -36,6 +39,9 @@ func (c *Client) GetHoldings(ctx context.Context) ([]models.Holding, error) {
 
 	err := c.transport.executeRaw(ctx, http.MethodGet, URIGetHoldings, nil, nil, &resp)
 	if err != nil {
+		if isNoDataAPIError(err) {
+			return []models.Holding{}, nil
+		}
 		return nil, err
 	}
 
