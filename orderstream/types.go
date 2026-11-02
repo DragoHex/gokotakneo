@@ -48,6 +48,28 @@ func (o *OrderUpdate) NormalizedMCXFilledQuantity() int {
 	return models.NormalizeMCXQuantity(o.SymbolName(), o.ExchangeSegment, o.FilledQuantity)
 }
 
+// NormalizedStatus converts broker order statuses (complete, traded, rejected, cancelled)
+// to uppercase canonical states (COMPLETE, REJECTED, CANCELLED).
+func (o *OrderUpdate) NormalizedStatus() string {
+	s := strings.ToUpper(strings.TrimSpace(o.Status))
+	switch s {
+	case "TRADED", "COMPLETE":
+		return "COMPLETE"
+	case "REJECTED", "REJECT":
+		return "REJECTED"
+	case "CANCELLED", "CANCEL":
+		return "CANCELLED"
+	default:
+		return s
+	}
+}
+
+// IsTerminal reports whether the order update represents a final terminal state.
+func (o *OrderUpdate) IsTerminal() bool {
+	st := o.NormalizedStatus()
+	return st == "COMPLETE" || st == "REJECTED" || st == "CANCELLED"
+}
+
 // PositionUpdate represents a live position exposure update.
 type PositionUpdate struct {
 	TradingSymbol string          `json:"trdSym"`

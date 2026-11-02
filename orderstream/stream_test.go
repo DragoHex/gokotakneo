@@ -244,4 +244,35 @@ func TestOrderStream_Lifecycle(t *testing.T) {
 			t.Errorf("Non-MCX NormalizedMCXFilledQuantity() = %d, want 25", got)
 		}
 	})
+
+	t.Run("Positive: OrderUpdate NormalizedStatus and IsTerminal", func(t *testing.T) {
+		tests := []struct {
+			status       string
+			wantNorm     string
+			wantTerminal bool
+		}{
+			{"complete", "COMPLETE", true},
+			{"COMPLETE", "COMPLETE", true},
+			{"traded", "COMPLETE", true},
+			{"TRADED", "COMPLETE", true},
+			{"rejected", "REJECTED", true},
+			{"REJECTED", "REJECTED", true},
+			{"cancelled", "CANCELLED", true},
+			{"CANCELLED", "CANCELLED", true},
+			{"open", "OPEN", false},
+			{"OPEN", "OPEN", false},
+			{"trigger pending", "TRIGGER PENDING", false},
+			{"", "", false},
+		}
+
+		for _, tt := range tests {
+			up := orderstream.OrderUpdate{Status: tt.status}
+			if got := up.NormalizedStatus(); got != tt.wantNorm {
+				t.Errorf("NormalizedStatus(%q) = %q, want %q", tt.status, got, tt.wantNorm)
+			}
+			if got := up.IsTerminal(); got != tt.wantTerminal {
+				t.Errorf("IsTerminal(%q) = %v, want %v", tt.status, got, tt.wantTerminal)
+			}
+		}
+	})
 }
