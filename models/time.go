@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// ISTLocation represents Indian Standard Time (UTC+05:30).
+var ISTLocation = time.FixedZone("IST", 5*3600+1800)
+
 // BrokerTime provides custom JSON deserialization for Kotak-Neo datetime formats.
 type BrokerTime struct {
 	time.Time
@@ -31,9 +34,16 @@ func (bt *BrokerTime) UnmarshalJSON(b []byte) error {
 	}
 
 	for _, format := range acceptedFormats {
-		if t, err := time.Parse(format, s); err == nil {
-			bt.Time = t
-			return nil
+		if strings.Contains(format, "Z07:00") {
+			if t, err := time.Parse(format, s); err == nil {
+				bt.Time = t
+				return nil
+			}
+		} else {
+			if t, err := time.ParseInLocation(format, s, ISTLocation); err == nil {
+				bt.Time = t
+				return nil
+			}
 		}
 	}
 

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"strings"
+
 	"github.com/shopspring/decimal"
 )
 
@@ -74,6 +76,7 @@ type Order struct {
 	OrderNumber     string          `json:"nOrdNo"`
 	ExchangeOrderID string          `json:"exOrdId"`
 	TradingSymbol   string          `json:"trdSym"`
+	Symbol          string          `json:"sym,omitempty"`
 	ExchangeSegment string          `json:"exSeg"`
 	TransactionType string          `json:"trnsTp"`
 	ProductCode     string          `json:"prod"`
@@ -86,6 +89,77 @@ type Order struct {
 	TriggerPrice    decimal.Decimal `json:"trgPrc"`
 	OrderTimestamp  BrokerTime      `json:"ordDtTm"`
 	RejectionReason string          `json:"rejRsn,omitempty"`
+}
+
+// SymbolName returns TradingSymbol if present, falling back to Symbol.
+func (o *Order) SymbolName() string {
+	if strings.TrimSpace(o.TradingSymbol) != "" {
+		return strings.TrimSpace(o.TradingSymbol)
+	}
+	return strings.TrimSpace(o.Symbol)
+}
+
+// NormalizedTransactionType normalizes Kotak transaction type (B/S) to canonical BUY/SELL.
+func (o *Order) NormalizedTransactionType() string {
+	switch strings.ToUpper(strings.TrimSpace(o.TransactionType)) {
+	case "S", "SELL":
+		return "SELL"
+	default:
+		return "BUY"
+	}
+}
+
+// NormalizedOrderType normalizes Kotak price type (L/MKT/SL/SL-M) to canonical LIMIT/MARKET/SL/SL-M.
+func (o *Order) NormalizedOrderType() string {
+	switch strings.ToUpper(strings.TrimSpace(o.PriceType)) {
+	case "L", "LIMIT":
+		return "LIMIT"
+	case "MKT", "MARKET":
+		return "MARKET"
+	case "SL":
+		return "SL"
+	case "SL-M", "SLM":
+		return "SL-M"
+	default:
+		return "MARKET"
+	}
+}
+
+// NormalizedProduct normalizes Kotak product code (CNC/NRML/MIS) to canonical CNC/NRML/MIS.
+func (o *Order) NormalizedProduct() string {
+	switch strings.ToUpper(strings.TrimSpace(o.ProductCode)) {
+	case "CNC":
+		return "CNC"
+	case "NRML", "MARGIN":
+		return "NRML"
+	case "MIS", "INTRADAY":
+		return "MIS"
+	default:
+		return strings.ToUpper(strings.TrimSpace(o.ProductCode))
+	}
+}
+
+// NormalizedExchange normalizes Kotak exchange segment (nse_fo, bse_fo, mcx_fo, etc.) to canonical NFO/BFO/MCX/BSE/NSE.
+func (o *Order) NormalizedExchange() string {
+	s := strings.ToLower(strings.TrimSpace(o.ExchangeSegment))
+	switch {
+	case strings.HasPrefix(s, "nse_fo") || strings.HasPrefix(s, "nfo"):
+		return "NFO"
+	case strings.HasPrefix(s, "bse_fo") || strings.HasPrefix(s, "bfo"):
+		return "BFO"
+	case strings.HasPrefix(s, "mcx"):
+		return "MCX"
+	case strings.HasPrefix(s, "bse"):
+		return "BSE"
+	default:
+		return "NSE"
+	}
+}
+
+// IsTerminal returns true if the order is in a final terminal state.
+func (o *Order) IsTerminal() bool {
+	st := strings.ToUpper(strings.TrimSpace(o.Status))
+	return st == "COMPLETE" || st == "REJECTED" || st == "CANCELLED"
 }
 
 // Trade represents an executed fill from the trade book.
@@ -119,6 +193,60 @@ type Position struct {
 	UpdateTime      BrokerTime      `json:"hsUpTm"`
 }
 
+// NetQuantity returns the open net quantity.
+func (p *Position) NetQuantity() int {
+	return p.Quantity
+}
+
+// AverageBuyPrice returns the volume-weighted buy price.
+func (p *Position) AverageBuyPrice() decimal.Decimal {
+	if p.FilledBuyQty > 0 && !p.BuyAmount.IsZero() {
+		return p.BuyAmount.Div(decimal.NewFromInt(int64(p.FilledBuyQty)))
+	}
+	return decimal.Zero
+}
+
+// AverageSellPrice returns the volume-weighted sell price.
+func (p *Position) AverageSellPrice() decimal.Decimal {
+	if p.FilledSellQty > 0 && !p.SellAmount.IsZero() {
+		return p.SellAmount.Div(decimal.NewFromInt(int64(p.FilledSellQty)))
+	}
+	return decimal.Zero
+}
+
+// RealizedPnL calculates realized profit or loss on closed quantities.
+func (p *Position) RealizedPnL() decimal.Decimal {
+	closedQty := p.FilledBuyQty
+	if p.FilledSellQty < closedQty {
+		closedQty = p.FilledSellQty
+	}
+	if closedQty <= 0 {
+		return decimal.Zero
+	}
+	buyAvg := p.AverageBuyPrice()
+	sellAvg := p.AverageSellPrice()
+	return sellAvg.Sub(buyAvg).Mul(decimal.NewFromInt(int64(closedQty)))
+}
+
+// PositionMetrics aggregates position risk, quantities, and PnL.
+type PositionMetrics struct {
+	NetQuantity int
+	RealizedPnL decimal.Decimal
+	TotalMTM    decimal.Decimal
+}
+
+// CalculatePositionMetrics summarizes aggregate portfolio metrics across positions.
+func CalculatePositionMetrics(positions []Position) PositionMetrics {
+	var metrics PositionMetrics
+	for _, p := range positions {
+		metrics.NetQuantity += p.Quantity
+		realized := p.RealizedPnL()
+		metrics.RealizedPnL = metrics.RealizedPnL.Add(realized)
+		metrics.TotalMTM = metrics.TotalMTM.Add(realized)
+	}
+	return metrics
+}
+
 // Holding represents long-term Demat custody holdings.
 type Holding struct {
 	InstrumentType     string          `json:"instrumentType"`
@@ -143,6 +271,27 @@ type Limits struct {
 	MarginUsed      decimal.Decimal `json:"MarginUsed"`
 	AdhocMargin     decimal.Decimal `json:"AdhocMargin"`
 	NotionalCash    decimal.Decimal `json:"NotionalCash"`
+}
+
+// AvailableCash returns liquid trading cash. If NotionalCash is non-zero, it is returned;
+// otherwise liquid cash is derived from Net minus CollateralValue.
+func (l *Limits) AvailableCash() decimal.Decimal {
+	if !l.NotionalCash.IsZero() {
+		return l.NotionalCash
+	}
+	if !l.Net.IsZero() {
+		cash := l.Net.Sub(l.CollateralValue)
+		if cash.IsNegative() {
+			return decimal.Zero
+		}
+		return cash
+	}
+	return decimal.Zero
+}
+
+// AvailableMargin returns the total trading margin available (Net limit).
+func (l *Limits) AvailableMargin() decimal.Decimal {
+	return l.Net
 }
 
 // Quote represents a full market quote.

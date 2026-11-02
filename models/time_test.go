@@ -123,6 +123,10 @@ func TestBrokerTime_UnmarshalJSON(t *testing.T) {
 				if got.Hour() != tt.wantHour || got.Minute() != tt.wantMinute || got.Second() != tt.wantSecond {
 					t.Errorf("got time %v:%v:%v, want %v:%v:%v", got.Hour(), got.Minute(), got.Second(), tt.wantHour, tt.wantMinute, tt.wantSecond)
 				}
+				_, offset := got.Zone()
+				if offset != 19800 { // 5 hours 30 mins
+					t.Errorf("got offset %d, want 19800 (+05:30 IST)", offset)
+				}
 			}
 		})
 	}
