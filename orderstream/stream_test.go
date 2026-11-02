@@ -214,4 +214,34 @@ func TestOrderStream_Lifecycle(t *testing.T) {
 			t.Fatal("client.Serve() did not terminate after client.Close()")
 		}
 	})
+
+	t.Run("Positive: OrderUpdate Normalized MCX Quantity", func(t *testing.T) {
+		mcxUp := orderstream.OrderUpdate{
+			TradingSymbol:   "CRUDEOIL17NOV265000PE",
+			ExchangeSegment: "mcx_fo",
+			Quantity:        200,
+			FilledQuantity:  100,
+		}
+
+		if got := mcxUp.NormalizedMCXQuantity(); got != 2 {
+			t.Errorf("NormalizedMCXQuantity() = %d, want 2", got)
+		}
+		if got := mcxUp.NormalizedMCXFilledQuantity(); got != 1 {
+			t.Errorf("NormalizedMCXFilledQuantity() = %d, want 1", got)
+		}
+
+		nseUp := orderstream.OrderUpdate{
+			TradingSymbol:   "NIFTY26NOV24000CE",
+			ExchangeSegment: "nse_fo",
+			Quantity:        50,
+			FilledQuantity:  25,
+		}
+
+		if got := nseUp.NormalizedMCXQuantity(); got != 50 {
+			t.Errorf("Non-MCX NormalizedMCXQuantity() = %d, want 50", got)
+		}
+		if got := nseUp.NormalizedMCXFilledQuantity(); got != 25 {
+			t.Errorf("Non-MCX NormalizedMCXFilledQuantity() = %d, want 25", got)
+		}
+	})
 }

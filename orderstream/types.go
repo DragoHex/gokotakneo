@@ -1,8 +1,10 @@
 package orderstream
 
 import (
+	"strings"
 	"time"
 
+	"github.com/DragoHex/gokotakneo/models"
 	"github.com/shopspring/decimal"
 )
 
@@ -24,6 +26,26 @@ type OrderUpdate struct {
 	AveragePrice     decimal.Decimal `json:"avgPrc"`
 	OrderTimestamp   string          `json:"ordDtTm"`
 	RejectionReason  string          `json:"rejRsn,omitempty"`
+}
+
+// SymbolName returns TradingSymbol if present, falling back to Symbol.
+func (o *OrderUpdate) SymbolName() string {
+	if strings.TrimSpace(o.TradingSymbol) != "" {
+		return strings.TrimSpace(o.TradingSymbol)
+	}
+	return strings.TrimSpace(o.Symbol)
+}
+
+// NormalizedMCXQuantity returns the order quantity in standard lots for MCX contracts.
+// For non-MCX exchanges, it returns Quantity unchanged.
+func (o *OrderUpdate) NormalizedMCXQuantity() int {
+	return models.NormalizeMCXQuantity(o.SymbolName(), o.ExchangeSegment, o.Quantity)
+}
+
+// NormalizedMCXFilledQuantity returns the filled quantity in standard lots for MCX contracts.
+// For non-MCX exchanges, it returns FilledQuantity unchanged.
+func (o *OrderUpdate) NormalizedMCXFilledQuantity() int {
+	return models.NormalizeMCXQuantity(o.SymbolName(), o.ExchangeSegment, o.FilledQuantity)
 }
 
 // PositionUpdate represents a live position exposure update.

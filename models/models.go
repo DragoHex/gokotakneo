@@ -162,6 +162,18 @@ func (o *Order) IsTerminal() bool {
 	return st == "COMPLETE" || st == "REJECTED" || st == "CANCELLED"
 }
 
+// NormalizedMCXQuantity returns the order quantity converted from commodity units to standard lots for MCX contracts.
+// For non-MCX exchanges, it returns Quantity untouched.
+func (o *Order) NormalizedMCXQuantity() int {
+	return NormalizeMCXQuantity(o.SymbolName(), o.NormalizedExchange(), o.Quantity)
+}
+
+// NormalizedMCXFilledQuantity returns the filled quantity converted from commodity units to standard lots for MCX contracts.
+// For non-MCX exchanges, it returns FilledQuantity untouched.
+func (o *Order) NormalizedMCXFilledQuantity() int {
+	return NormalizeMCXQuantity(o.SymbolName(), o.NormalizedExchange(), o.FilledQuantity)
+}
+
 // Trade represents an executed fill from the trade book.
 type Trade struct {
 	TradeID         string          `json:"trdId"`
