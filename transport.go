@@ -40,6 +40,7 @@ func NewDefaultTransport(baseURI string) *Transport {
 				MaxIdleConnsPerHost:   50,
 				ResponseHeaderTimeout: 5 * time.Second,
 				IdleConnTimeout:       90 * time.Second,
+				ForceAttemptHTTP2:     true,
 			},
 		},
 	}

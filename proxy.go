@@ -136,6 +136,7 @@ func applyProxyURL(t *Transport, proxyURL *url.URL) {
 		}
 	}
 
+	tr.ForceAttemptHTTP2 = true
 	tr.Proxy = http.ProxyURL(proxyURL)
 
 	t.client = &http.Client{
@@ -157,6 +158,7 @@ func RESTClientFor(cfg ProxyConfig) (*http.Client, error) {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 	return &http.Client{
 		Transport: tr,

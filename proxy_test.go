@@ -530,6 +530,9 @@ func TestRESTClientFor(t *testing.T) {
 	if !ok || tr.Proxy == nil {
 		t.Fatal("expected *http.Transport with non-nil Proxy")
 	}
+	if !tr.ForceAttemptHTTP2 {
+		t.Errorf("expected ForceAttemptHTTP2 = true, got false")
+	}
 
 	badCfg := ProxyConfig{Host: "   "}
 	_, err = RESTClientFor(badCfg)
