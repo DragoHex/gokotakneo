@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -41,14 +42,19 @@ func (e *APIError) Unwrap() error {
 // ParseAPIError parses HTTP status and body bytes into a strongly typed APIError.
 func ParseAPIError(httpStatus int, body []byte) error {
 	// 1. Try parsing Kotak standard trading error: {"stat": "Not_Ok", "stCode": 1004, "emsg": "..."}
+	// or {"error": [{"code": "200002", "message": "request format error"}], "stat": "Not_Ok"}
 	var kotakErr struct {
 		Stat   string `json:"stat"`
 		StCode int    `json:"stCode"`
 		EMsg   string `json:"emsg"`
 		ErrMsg string `json:"errMsg"`
 		Desc   string `json:"desc"`
+		Error  []struct {
+			Code    interface{} `json:"code"`
+			Message string      `json:"message"`
+		} `json:"error"`
 	}
-	if err := json.Unmarshal(body, &kotakErr); err == nil && (kotakErr.Stat == "Not_Ok" || kotakErr.StCode > 0) {
+	if err := json.Unmarshal(body, &kotakErr); err == nil && (kotakErr.Stat == "Not_Ok" || kotakErr.StCode > 0 || len(kotakErr.Error) > 0) {
 		msg := kotakErr.EMsg
 		if msg == "" {
 			msg = kotakErr.ErrMsg
@@ -56,12 +62,27 @@ func ParseAPIError(httpStatus int, body []byte) error {
 		if msg == "" {
 			msg = kotakErr.Desc
 		}
+		stCode := kotakErr.StCode
+		if stCode == 0 && len(kotakErr.Error) > 0 {
+			if msg == "" {
+				msg = kotakErr.Error[0].Message
+			}
+			switch c := kotakErr.Error[0].Code.(type) {
+			case float64:
+				stCode = int(c)
+			case string:
+				if n, err := strconv.Atoi(c); err == nil {
+					stCode = n
+				}
+			}
+		}
+
 		apiErr := &APIError{
-			StatusCode: kotakErr.StCode,
+			StatusCode: stCode,
 			Status:     kotakErr.Stat,
 			Message:    msg,
 		}
-		apiErr.Err = mapKotakCodeToSentinel(kotakErr.StCode, msg)
+		apiErr.Err = mapKotakCodeToSentinel(stCode, msg)
 		if apiErr.Message == "" {
 			apiErr.Message = apiErr.Err.Error()
 		}
@@ -141,24 +162,26 @@ func mapKotakCodeToSentinel(stCode int, msg string) error {
 }
 
 // isNoDataAPIError returns true if err indicates an empty result from Kotak Neo
-// (e.g., stCode 5203, "No Data", "data not found", or "No holdings found").
+// (e.g., stCode 5203, 200002, "No Data", "data not found", "No holdings found", or "request format error").
 func isNoDataAPIError(err error) bool {
 	if err == nil {
 		return false
 	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		if apiErr.StatusCode == 5203 {
+		if apiErr.StatusCode == 5203 || apiErr.StatusCode == 200002 {
 			return true
 		}
 		msg := strings.ToLower(apiErr.Message)
-		if strings.Contains(msg, "no data") || strings.Contains(msg, "data not found") || strings.Contains(msg, "no holdings found") {
+		if strings.Contains(msg, "no data") || strings.Contains(msg, "data not found") || strings.Contains(msg, "no holdings found") || strings.Contains(msg, "request format error") {
 			return true
 		}
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "5203") ||
+		strings.Contains(msg, "200002") ||
 		strings.Contains(msg, "no data") ||
 		strings.Contains(msg, "data not found") ||
-		strings.Contains(msg, "no holdings found")
+		strings.Contains(msg, "no holdings found") ||
+		strings.Contains(msg, "request format error")
 }

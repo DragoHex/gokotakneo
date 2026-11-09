@@ -2,17 +2,18 @@ package orderstream
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/DragoHex/gokotakneo/wsproxy"
 	"github.com/gorilla/websocket"
 )
 
@@ -28,6 +29,7 @@ type Client struct {
 	reconnectAttempt int
 	cancel           context.CancelFunc
 	proxyURL         *url.URL
+	tlsConfig        *tls.Config
 	mu               sync.Mutex
 }
 
@@ -41,6 +43,13 @@ func (c *Client) SetProxyURL(rawURL string) {
 			c.proxyURL = u
 		}
 	}
+}
+
+// SetTLSConfig sets a custom TLS configuration on the order stream client.
+func (c *Client) SetTLSConfig(cfg *tls.Config) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tlsConfig = cfg
 }
 
 // New creates a new order/position streaming client.
@@ -136,15 +145,10 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 
 	c.mu.Lock()
 	proxyURL := c.proxyURL
+	tlsConfig := c.tlsConfig
 	c.mu.Unlock()
 
-	dialer := websocket.DefaultDialer
-	if proxyURL != nil {
-		dialer = &websocket.Dialer{
-			Proxy:            http.ProxyURL(proxyURL),
-			HandshakeTimeout: 10 * time.Second,
-		}
-	}
+	dialer := wsproxy.NewDialer(proxyURL, 10*time.Second, tlsConfig)
 	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("order stream websocket dial: %w", err)

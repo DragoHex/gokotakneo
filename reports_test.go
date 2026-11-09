@@ -220,4 +220,41 @@ func TestReports_Execution(t *testing.T) {
 			t.Errorf("expected 0 trades, got %d", len(trades))
 		}
 	})
+
+	t.Run("Positive: GetOrders empty on 200002 request format error (no orders placed)", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"error":[{"code":"200002","message":"request format error"}],"stat":"Not_Ok"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		orders, err := client.GetOrders(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on 200002, got: %v", err)
+		}
+		if len(orders) != 0 {
+			t.Errorf("expected 0 orders, got %d", len(orders))
+		}
+	})
+
+	t.Run("Positive: GetOrders empty on stCode 200002 integer format", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"stat":"Not_Ok","stCode":200002,"emsg":"request format error"}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		orders, err := client.GetOrders(context.Background())
+		if err != nil {
+			t.Fatalf("expected nil error on stCode 200002, got: %v", err)
+		}
+		if len(orders) != 0 {
+			t.Errorf("expected 0 orders, got %d", len(orders))
+		}
+	})
 }
+

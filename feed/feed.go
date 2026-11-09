@@ -2,17 +2,18 @@ package feed
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/DragoHex/gokotakneo/wsproxy"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,6 +32,7 @@ type Client struct {
 	reconnectAttempt int
 	cancel           context.CancelFunc
 	proxyURL         *url.URL
+	tlsConfig        *tls.Config
 }
 
 // SetProxyURL sets proxy URL on the feed client.
@@ -41,6 +43,11 @@ func (c *Client) SetProxyURL(rawURL string) {
 			c.proxyURL = u
 		}
 	}
+}
+
+// SetTLSConfig sets custom TLS configuration on the feed client.
+func (c *Client) SetTLSConfig(cfg *tls.Config) {
+	c.tlsConfig = cfg
 }
 
 // NewClient creates a market quotes streaming client.
@@ -116,13 +123,7 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		return fmt.Errorf("invalid feed url: %w", err)
 	}
 
-	dialer := websocket.DefaultDialer
-	if c.proxyURL != nil {
-		dialer = &websocket.Dialer{
-			Proxy:            http.ProxyURL(c.proxyURL),
-			HandshakeTimeout: 10 * time.Second,
-		}
-	}
+	dialer := wsproxy.NewDialer(c.proxyURL, 10*time.Second, c.tlsConfig)
 	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("feed websocket dial: %w", err)

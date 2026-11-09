@@ -2,10 +2,14 @@ package orderstream_test
 
 import (
 	"context"
+	"encoding/base64"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +81,9 @@ func TestOrderStream_Lifecycle(t *testing.T) {
 			OnOrderUpdate: func(order orderstream.OrderUpdate) {
 				capturedOrder = order
 				orderReceived.Done()
+			},
+			OnError: func(err error) {
+				t.Logf("client error: %v", err)
 			},
 		}
 
@@ -273,6 +280,134 @@ func TestOrderStream_Lifecycle(t *testing.T) {
 			if got := up.IsTerminal(); got != tt.wantTerminal {
 				t.Errorf("IsTerminal(%q) = %v, want %v", tt.status, got, tt.wantTerminal)
 			}
+		}
+	})
+
+	t.Run("Positive: OrderStream connects through HTTPS forward proxy", func(t *testing.T) {
+		// Target WebSocket server
+		targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			_, _, _ = conn.ReadMessage() // Handshake
+			conn.WriteJSON(map[string]string{
+				"ak":   "ok",
+				"type": "cn",
+				"msg":  "connected",
+			})
+			conn.WriteJSON(map[string]interface{}{
+				"type": "order",
+				"data": map[string]interface{}{
+					"nOrdNo": "260216000308219",
+					"trdSym": "NIFTY26N0924000PE",
+					"ordSt":  "complete",
+					"qty":    65,
+					"fldQty": 65,
+				},
+			})
+		}))
+		defer targetServer.Close()
+
+		var proxyConnectCount atomic.Int32
+		var capturedProxyAuth string
+
+		// Mock HTTPS forward proxy
+		proxyServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodConnect {
+				proxyConnectCount.Add(1)
+				capturedProxyAuth = r.Header.Get("Proxy-Authorization")
+
+				expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("proxyuser:proxypass"))
+				if capturedProxyAuth != expectedAuth {
+					w.WriteHeader(http.StatusProxyAuthRequired)
+					return
+				}
+
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					http.Error(w, "hijacking not supported", http.StatusInternalServerError)
+					return
+				}
+				clientConn, bufrw, err := hj.Hijack()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusServiceUnavailable)
+					return
+				}
+				defer clientConn.Close()
+
+				targetConn, err := net.DialTimeout("tcp", r.Host, 5*time.Second)
+				if err != nil {
+					bufrw.WriteString("HTTP/1.1 502 Bad Gateway\r\n\r\n")
+					bufrw.Flush()
+					return
+				}
+				defer targetConn.Close()
+
+				bufrw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
+				bufrw.Flush()
+
+				errc := make(chan error, 2)
+				go func() {
+					_, err := io.Copy(targetConn, bufrw)
+					errc <- err
+				}()
+				go func() {
+					_, err := io.Copy(clientConn, targetConn)
+					errc <- err
+				}()
+				<-errc
+				return
+			}
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}))
+		defer proxyServer.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(targetServer.URL, "http")
+		proxyURL := "https://proxyuser:proxypass@" + strings.TrimPrefix(proxyServer.URL, "https://")
+
+		var orderReceived sync.WaitGroup
+		orderReceived.Add(1)
+		var capturedOrder orderstream.OrderUpdate
+
+		callbacks := orderstream.StreamCallbacks{
+			OnOrderUpdate: func(order orderstream.OrderUpdate) {
+				capturedOrder = order
+				orderReceived.Done()
+			},
+			OnError: func(err error) {
+				t.Logf("client error: %v", err)
+			},
+		}
+
+		client := orderstream.New(wsURL, "token", "sid", callbacks)
+		client.SetTLSConfig(proxyServer.Client().Transport.(*http.Transport).TLSClientConfig)
+		client.SetProxyURL(proxyURL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go client.Serve(ctx)
+
+		waitCh := make(chan struct{})
+		go func() {
+			orderReceived.Wait()
+			close(waitCh)
+		}()
+
+		select {
+		case <-waitCh:
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for order update through HTTPS proxy")
+		}
+
+		if capturedOrder.OrderNumber != "260216000308219" {
+			t.Errorf("OrderNumber = %q, want 260216000308219", capturedOrder.OrderNumber)
+		}
+		if proxyConnectCount.Load() == 0 {
+			t.Errorf("proxyConnectCount = 0, expected traffic through HTTPS proxy")
 		}
 	})
 }
