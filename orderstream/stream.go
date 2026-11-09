@@ -27,6 +27,8 @@ type Client struct {
 	lastActivity     atomic.Value
 	autoReconnect    bool
 	reconnectAttempt int
+	activeConns      atomic.Int32
+	hasConnectedOnce bool
 	cancel           context.CancelFunc
 	proxyURL         *url.URL
 	tlsConfig        *tls.Config
@@ -77,6 +79,9 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.autoReconnect = false
+	c.hasConnectedOnce = false
+	c.reconnectAttempt = 0
+	c.activeConns.Store(0)
 	if c.cancel != nil {
 		c.cancel()
 	}
@@ -84,6 +89,11 @@ func (c *Client) Close() error {
 		return c.conn.Close()
 	}
 	return nil
+}
+
+// IsConnected reports whether the client has an active, authenticated WebSocket connection.
+func (c *Client) IsConnected() bool {
+	return c.activeConns.Load() > 0
 }
 
 // Serve starts the connection and message loop until context cancellation or Close().
@@ -165,6 +175,7 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		}
 		c.mu.Unlock()
 		conn.Close()
+		c.activeConns.Store(0)
 	}()
 
 	c.reconnectAttempt = 0
@@ -184,8 +195,18 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 	})
 
+	c.activeConns.Store(1)
+
+	c.mu.Lock()
+	isReconnect := c.hasConnectedOnce
+	c.hasConnectedOnce = true
+	c.mu.Unlock()
+
 	if c.callbacks.OnConnect != nil {
 		c.callbacks.OnConnect()
+	}
+	if isReconnect && c.callbacks.OnReconnected != nil {
+		c.callbacks.OnReconnected()
 	}
 
 	var wg sync.WaitGroup

@@ -410,4 +410,142 @@ func TestOrderStream_Lifecycle(t *testing.T) {
 			t.Errorf("proxyConnectCount = 0, expected traffic through HTTPS proxy")
 		}
 	})
+
+	t.Run("Positive: Connection Lifecycle, Decrement on Disconnect, and OnReconnected", func(t *testing.T) {
+		var mu sync.Mutex
+		var activeSockets []*websocket.Conn
+		var connCount int
+		dropFirstConn := make(chan struct{})
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+
+			mu.Lock()
+			connCount++
+			currentCount := connCount
+			activeSockets = append(activeSockets, conn)
+			mu.Unlock()
+
+			// Read handshake
+			_, _, _ = conn.ReadMessage()
+
+			// Send ACK
+			_ = conn.WriteJSON(map[string]string{
+				"ak":   "ok",
+				"type": "cn",
+				"msg":  "connected",
+			})
+
+			if currentCount == 1 {
+				// Keep connection alive until signal to close
+				<-dropFirstConn
+				conn.Close()
+				return
+			}
+
+			// Keep second connection alive until test ends
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					break
+				}
+			}
+		}))
+		defer server.Close()
+		defer func() {
+			mu.Lock()
+			for _, s := range activeSockets {
+				_ = s.Close()
+			}
+			mu.Unlock()
+		}()
+
+		var onConnectCount int32
+		var onReconnectedCount int32
+		var onReconnectRetryCount int32
+
+		callbacks := orderstream.StreamCallbacks{
+			OnConnect: func() {
+				atomic.AddInt32(&onConnectCount, 1)
+			},
+			OnReconnected: func() {
+				atomic.AddInt32(&onReconnectedCount, 1)
+			},
+			OnReconnect: func(attempt int, delay time.Duration) {
+				atomic.AddInt32(&onReconnectRetryCount, 1)
+			},
+		}
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+		client := orderstream.New(wsURL, "token", "sid", callbacks)
+
+		// Initially, client must not be connected
+		if client.IsConnected() {
+			t.Fatal("expected IsConnected() == false before Serve")
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go client.Serve(ctx)
+
+		// Wait for initial connection
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if client.IsConnected() && atomic.LoadInt32(&onConnectCount) == 1 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		if !client.IsConnected() {
+			t.Fatal("expected IsConnected() == true after initial connection")
+		}
+		if atomic.LoadInt32(&onReconnectedCount) != 0 {
+			t.Fatalf("expected onReconnectedCount == 0 on initial connect, got %d", onReconnectedCount)
+		}
+
+		// Trigger disconnect of the first connection
+		close(dropFirstConn)
+
+		// Wait for client to detect disconnect and decrement active connection state
+		deadline = time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if !client.IsConnected() {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		if client.IsConnected() {
+			t.Fatal("expected IsConnected() == false after connection dropped (activeConns not decremented)")
+		}
+
+		// Wait for auto-reconnect to establish second connection
+		deadline = time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if client.IsConnected() && atomic.LoadInt32(&onConnectCount) >= 2 && atomic.LoadInt32(&onReconnectedCount) == 1 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		if !client.IsConnected() {
+			t.Fatal("expected IsConnected() == true after reconnection")
+		}
+		if atomic.LoadInt32(&onConnectCount) < 2 {
+			t.Fatalf("expected onConnectCount >= 2, got %d", onConnectCount)
+		}
+		if atomic.LoadInt32(&onReconnectedCount) != 1 {
+			t.Fatalf("expected onReconnectedCount == 1, got %d", onReconnectedCount)
+		}
+
+		// Verify Close() decrements and resets state
+		_ = client.Close()
+		if client.IsConnected() {
+			t.Fatal("expected IsConnected() == false after Close()")
+		}
+	})
 }

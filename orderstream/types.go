@@ -81,9 +81,10 @@ type PositionUpdate struct {
 // StreamCallbacks represents callbacks for live order/position events.
 type StreamCallbacks struct {
 	OnConnect        func()
+	OnReconnected    func() // Invoked only upon successful reconnection after a prior disconnect
 	OnOrderUpdate    func(OrderUpdate)
 	OnPositionUpdate func(PositionUpdate)
 	OnError          func(error)
 	OnClose          func(code int, reason string)
-	OnReconnect      func(attempt int, delay time.Duration)
+	OnReconnect      func(attempt int, delay time.Duration) // Invoked before backoff delay during retry
 }
