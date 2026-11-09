@@ -266,7 +266,8 @@ type Holding struct {
 	InstrumentToken    int64           `json:"instrumentToken"`
 	CommonScripCode    string          `json:"commonScripCode"`
 	InstrumentName     string          `json:"instrumentName"`
-	Quantity           int             `json:"quantity"`
+	Quantity           decimal.Decimal `json:"quantity"`
+	SellableQuantity   decimal.Decimal `json:"sellableQuantity"`
 	AveragePrice       decimal.Decimal `json:"averagePrice"`
 	HoldingCost        decimal.Decimal `json:"holdingCost"`
 	ClosingPrice       decimal.Decimal `json:"closingPrice"`

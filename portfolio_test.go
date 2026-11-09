@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/DragoHex/gokotakneo"
+	"github.com/shopspring/decimal"
 )
 
 func TestPortfolio_Execution(t *testing.T) {
@@ -96,8 +97,80 @@ func TestPortfolio_Execution(t *testing.T) {
 		if len(holdings) != 1 {
 			t.Fatalf("expected 1 holding, got %d", len(holdings))
 		}
-		if holdings[0].Quantity != 45 || holdings[0].CommonScripCode != "NIPPON_ETF_NIFTYIT" {
+		if !holdings[0].Quantity.Equal(decimal.NewFromInt(45)) || holdings[0].CommonScripCode != "NIPPON_ETF_NIFTYIT" {
 			t.Errorf("unexpected holding: %+v", holdings[0])
+		}
+	})
+
+	t.Run("Positive: Get Holdings with Fractional and Decimal Quantities", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/portfolio/v1/holdings" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": [
+					{
+						"instrumentType": "Equity",
+						"sector": "Others",
+						"instrumentToken": 2965,
+						"commonScripCode": "BENCHMARK_MUTUAL_FUN",
+						"instrumentName": "Nippon India ETF Nifty 1D Rate Liquid BeES",
+						"quantity": 0.002,
+						"averagePrice": 0,
+						"holdingCost": 0,
+						"closingPrice": 1000,
+						"mktValue": 2,
+						"sellableQuantity": 0
+					},
+					{
+						"instrumentType": "mutual fund",
+						"sector": "Equity",
+						"instrumentToken": 0,
+						"commonScripCode": "PP001ZG-GR",
+						"instrumentName": "Parag Parikh Flexi Cap Fund - Growth|INF879O01027",
+						"quantity": 15456.843,
+						"averagePrice": 88.8675,
+						"holdingCost": 1373610.995,
+						"closingPrice": 93.9483,
+						"mktValue": 1452144.123,
+						"sellableQuantity": 0
+					},
+					{
+						"instrumentType": "COMM",
+						"sector": "Others",
+						"instrumentToken": 0,
+						"commonScripCode": "OPTFUTCRUDEOIL",
+						"instrumentName": "OPTFUTCRUDEOIL",
+						"quantity": -100,
+						"averagePrice": 38.6629,
+						"holdingCost": -3866.29,
+						"closingPrice": 39.4,
+						"mktValue": -3940,
+						"sellableQuantity": 0
+					}
+				]
+			}`))
+		}))
+		defer server.Close()
+
+		client := gokotakneo.New("portal-token", gokotakneo.WithBaseURL(server.URL))
+		holdings, err := client.GetHoldings(context.Background())
+		if err != nil {
+			t.Fatalf("GetHoldings failed: %v", err)
+		}
+		if len(holdings) != 3 {
+			t.Fatalf("expected 3 holdings, got %d", len(holdings))
+		}
+		if !holdings[0].Quantity.Equal(decimal.NewFromFloat(0.002)) {
+			t.Errorf("holdings[0].Quantity = %s, want 0.002", holdings[0].Quantity)
+		}
+		if !holdings[1].Quantity.Equal(decimal.NewFromFloat(15456.843)) {
+			t.Errorf("holdings[1].Quantity = %s, want 15456.843", holdings[1].Quantity)
+		}
+		if !holdings[2].Quantity.Equal(decimal.NewFromInt(-100)) {
+			t.Errorf("holdings[2].Quantity = %s, want -100", holdings[2].Quantity)
 		}
 	})
 
