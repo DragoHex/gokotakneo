@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/DragoHex/gokotakneo/models"
@@ -233,6 +234,107 @@ func TestPosition_MetricsAndPnL(t *testing.T) {
 		// TotalMTM is sum of RealizedPnL when no unclosed MTM feed is supplied
 		if !metrics.TotalMTM.Equal(decimal.NewFromFloat(-30.00)) {
 			t.Errorf("metrics.TotalMTM = %s, want -30.00", metrics.TotalMTM)
+		}
+	})
+
+	t.Run("Positive: UnmarshalLivePayload with CarriedForward and Day executions", func(t *testing.T) {
+		overnightShortJSON := `{
+			"actId": "V4KI4",
+			"brdLtQty": 100,
+			"cfBuyAmt": "0.00",
+			"cfSellAmt": "2640.00",
+			"cfBuyQty": "0",
+			"cfSellQty": "100",
+			"exSeg": "mcx_fo",
+			"buyAmt": "0.00",
+			"sellAmt": "0.00",
+			"flBuyQty": "0",
+			"flSellQty": "0",
+			"prod": "NRML",
+			"trdSym": "CRUDEOIL17NOV267300PE",
+			"lotSz": "100"
+		}`
+
+		var p1 models.Position
+		if err := json.Unmarshal([]byte(overnightShortJSON), &p1); err != nil {
+			t.Fatalf("unmarshal p1: %v", err)
+		}
+		if p1.Quantity != -100 {
+			t.Errorf("p1.Quantity = %d, want -100", p1.Quantity)
+		}
+		if p1.NetQuantity() != -100 {
+			t.Errorf("p1.NetQuantity() = %d, want -100", p1.NetQuantity())
+		}
+		if !p1.AverageSellPrice().Equal(decimal.NewFromFloat(26.40)) {
+			t.Errorf("p1.AverageSellPrice() = %s, want 26.40", p1.AverageSellPrice())
+		}
+
+		dayShortJSON := `{
+			"actId": "V4KI4",
+			"brdLtQty": 65,
+			"cfBuyAmt": "0.00",
+			"cfSellAmt": "0.00",
+			"cfBuyQty": "0",
+			"cfSellQty": "0",
+			"exSeg": "nse_fo",
+			"buyAmt": "0.00",
+			"sellAmt": "4143.75",
+			"flBuyQty": "0",
+			"flSellQty": "325",
+			"prod": "NRML",
+			"trdSym": "NIFTY26N0924600PE",
+			"lotSz": "65"
+		}`
+
+		var p2 models.Position
+		if err := json.Unmarshal([]byte(dayShortJSON), &p2); err != nil {
+			t.Fatalf("unmarshal p2: %v", err)
+		}
+		if p2.Quantity != -325 {
+			t.Errorf("p2.Quantity = %d, want -325", p2.Quantity)
+		}
+		if p2.NetQuantity() != -325 {
+			t.Errorf("p2.NetQuantity() = %d, want -325", p2.NetQuantity())
+		}
+		if !p2.AverageSellPrice().Equal(decimal.NewFromFloat(12.75)) {
+			t.Errorf("p2.AverageSellPrice() = %s, want 12.75", p2.AverageSellPrice())
+		}
+
+		closedTradeJSON := `{
+			"actId": "V4KI4",
+			"brdLtQty": 65,
+			"cfBuyAmt": "0.00",
+			"cfSellAmt": "0.00",
+			"cfBuyQty": "0",
+			"cfSellQty": "0",
+			"exSeg": "nse_fo",
+			"buyAmt": "1251.25",
+			"sellAmt": "5053.75",
+			"flBuyQty": "325",
+			"flSellQty": "325",
+			"prod": "NRML",
+			"trdSym": "NIFTY26N0925300CE",
+			"lotSz": "65"
+		}`
+
+		var p3 models.Position
+		if err := json.Unmarshal([]byte(closedTradeJSON), &p3); err != nil {
+			t.Fatalf("unmarshal p3: %v", err)
+		}
+		if p3.Quantity != 0 {
+			t.Errorf("p3.Quantity = %d, want 0", p3.Quantity)
+		}
+		if p3.NetQuantity() != 0 {
+			t.Errorf("p3.NetQuantity() = %d, want 0", p3.NetQuantity())
+		}
+		if !p3.AverageBuyPrice().Equal(decimal.NewFromFloat(3.85)) {
+			t.Errorf("p3.AverageBuyPrice() = %s, want 3.85", p3.AverageBuyPrice())
+		}
+		if !p3.AverageSellPrice().Equal(decimal.NewFromFloat(15.55)) {
+			t.Errorf("p3.AverageSellPrice() = %s, want 15.55", p3.AverageSellPrice())
+		}
+		if !p3.RealizedPnL().Equal(decimal.NewFromFloat(3802.50)) {
+			t.Errorf("p3.RealizedPnL() = %s, want 3802.50", p3.RealizedPnL())
 		}
 	})
 }

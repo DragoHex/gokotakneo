@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -196,6 +197,10 @@ type Position struct {
 	Quantity        int             `json:"qty,string"`
 	BuyAmount       decimal.Decimal `json:"buyAmt"`
 	SellAmount      decimal.Decimal `json:"sellAmt"`
+	CFBuyAmount     decimal.Decimal `json:"cfBuyAmt"`
+	CFSellAmount    decimal.Decimal `json:"cfSellAmt"`
+	CFBuyQty        int             `json:"cfBuyQty,string"`
+	CFSellQty       int             `json:"cfSellQty,string"`
 	FilledBuyQty    int             `json:"flBuyQty,string"`
 	FilledSellQty   int             `json:"flSellQty,string"`
 	BoardLotQty     int             `json:"brdLtQty"`
@@ -205,32 +210,74 @@ type Position struct {
 	UpdateTime      BrokerTime      `json:"hsUpTm"`
 }
 
-// NetQuantity returns the open net quantity.
-func (p *Position) NetQuantity() int {
-	return p.Quantity
+// UnmarshalJSON unmarshals Position JSON and automatically calculates Quantity if omitted.
+func (p *Position) UnmarshalJSON(data []byte) error {
+	type Alias Position
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*p = Position(aux)
+	if p.Quantity == 0 {
+		p.Quantity = p.NetQuantity()
+	}
+	return nil
 }
 
-// AverageBuyPrice returns the volume-weighted buy price.
+// TotalBuyQty returns the aggregate buy quantity across carried forward and day executions.
+func (p *Position) TotalBuyQty() int {
+	return p.CFBuyQty + p.FilledBuyQty
+}
+
+// TotalSellQty returns the aggregate sell quantity across carried forward and day executions.
+func (p *Position) TotalSellQty() int {
+	return p.CFSellQty + p.FilledSellQty
+}
+
+// TotalBuyAmount returns the aggregate buy amount across carried forward and day executions.
+func (p *Position) TotalBuyAmount() decimal.Decimal {
+	return p.CFBuyAmount.Add(p.BuyAmount)
+}
+
+// TotalSellAmount returns the aggregate sell amount across carried forward and day executions.
+func (p *Position) TotalSellAmount() decimal.Decimal {
+	return p.CFSellAmount.Add(p.SellAmount)
+}
+
+// NetQuantity returns the open net quantity (TotalBuyQty - TotalSellQty).
+func (p *Position) NetQuantity() int {
+	net := p.TotalBuyQty() - p.TotalSellQty()
+	if net == 0 && p.Quantity != 0 {
+		return p.Quantity
+	}
+	return net
+}
+
+// AverageBuyPrice returns the volume-weighted buy price across all executions.
 func (p *Position) AverageBuyPrice() decimal.Decimal {
-	if p.FilledBuyQty > 0 && !p.BuyAmount.IsZero() {
-		return p.BuyAmount.Div(decimal.NewFromInt(int64(p.FilledBuyQty)))
+	totalBuy := p.TotalBuyQty()
+	totalAmt := p.TotalBuyAmount()
+	if totalBuy > 0 && !totalAmt.IsZero() {
+		return totalAmt.Div(decimal.NewFromInt(int64(totalBuy)))
 	}
 	return decimal.Zero
 }
 
-// AverageSellPrice returns the volume-weighted sell price.
+// AverageSellPrice returns the volume-weighted sell price across all executions.
 func (p *Position) AverageSellPrice() decimal.Decimal {
-	if p.FilledSellQty > 0 && !p.SellAmount.IsZero() {
-		return p.SellAmount.Div(decimal.NewFromInt(int64(p.FilledSellQty)))
+	totalSell := p.TotalSellQty()
+	totalAmt := p.TotalSellAmount()
+	if totalSell > 0 && !totalAmt.IsZero() {
+		return totalAmt.Div(decimal.NewFromInt(int64(totalSell)))
 	}
 	return decimal.Zero
 }
 
 // RealizedPnL calculates realized profit or loss on closed quantities.
 func (p *Position) RealizedPnL() decimal.Decimal {
-	closedQty := p.FilledBuyQty
-	if p.FilledSellQty < closedQty {
-		closedQty = p.FilledSellQty
+	closedQty := p.TotalBuyQty()
+	if p.TotalSellQty() < closedQty {
+		closedQty = p.TotalSellQty()
 	}
 	if closedQty <= 0 {
 		return decimal.Zero
@@ -251,7 +298,7 @@ type PositionMetrics struct {
 func CalculatePositionMetrics(positions []Position) PositionMetrics {
 	var metrics PositionMetrics
 	for _, p := range positions {
-		metrics.NetQuantity += p.Quantity
+		metrics.NetQuantity += p.NetQuantity()
 		realized := p.RealizedPnL()
 		metrics.RealizedPnL = metrics.RealizedPnL.Add(realized)
 		metrics.TotalMTM = metrics.TotalMTM.Add(realized)
