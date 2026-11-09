@@ -81,6 +81,14 @@ func TestParseError_Taxonomy(t *testing.T) {
 			wantCode:      100008,
 			wantMsgSubstr: "static ip not whitelisted",
 		},
+		{
+			name:          "Positive: Kotak RMS Bridge Error Out (300015)",
+			httpStatus:    http.StatusOK,
+			body:          []byte(`{"stat": "Not_Ok", "stCode": 300015, "emsg": "bridge API error out"}`),
+			wantSentinel:  gokotakneo.ErrBrokerUnavailable,
+			wantCode:      300015,
+			wantMsgSubstr: "bridge API error out",
+		},
 	}
 
 	for _, tt := range tests {

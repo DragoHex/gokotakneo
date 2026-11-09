@@ -150,12 +150,18 @@ func mapKotakCodeToSentinel(stCode int, msg string) error {
 		return ErrNotFound
 	case 100008:
 		return ErrIPNotWhitelisted
+	case 300015:
+		return ErrBrokerUnavailable
 	default:
-		if strings.Contains(strings.ToLower(msg), "insufficient") {
+		lowerMsg := strings.ToLower(msg)
+		if strings.Contains(lowerMsg, "insufficient") {
 			return ErrInsufficientFunds
 		}
-		if strings.Contains(strings.ToLower(msg), "already executed") {
+		if strings.Contains(lowerMsg, "already executed") {
 			return ErrOrderNotModifiable
+		}
+		if strings.Contains(lowerMsg, "bridge") || strings.Contains(lowerMsg, "gateway") || strings.Contains(lowerMsg, "timed out") || strings.Contains(lowerMsg, "unreachable") {
+			return ErrBrokerUnavailable
 		}
 		return ErrInvalidInput
 	}
